@@ -1,12 +1,9 @@
-# agg_chattering_alarm
-A preprocess project for alarm data
-
 [rawData]
 # 包含 3687795 行数据
-sensor-alarm-info_sort.csv
-sensor-alarm-info_sort.json
-sensor-alarm-info.csv
-sensor-alarm-info.json
+sensor-alarm-info_sort.csv /n
+sensor-alarm-info_sort.json /n
+sensor-alarm-info.csv /n
+sensor-alarm-info.json /n
 
 [codeFile]
 1.计算同差值内的不同传感器发生频率的告警组（test1_count_sensor.py）
