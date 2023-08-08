@@ -1,8 +1,8 @@
 # -*- encoding: UTF-8 -*-
 '''
 @File        : aggregate_chatter_alarm.py
-@Environment : 
-@Description : 
+@Environment : TJalarm
+@Description : finding chattering alarms those in a window and aggregate them
 @Time        : 2023-08-01 15:08:48
 @Author      : tanxh 
 '''
@@ -35,7 +35,7 @@ def date_time_count_ms(start_time, end_time):
 
     return total_second
 
-def find_data_in_window(input_file, output_file, window_size_minutes):
+def find_data_in_time_gap(input_file, output_file, window_size_minutes):
     rowList = [] # 记录所有行
     alarmList = [] # 记录需要保留的告警
     writeline = 0
@@ -128,7 +128,7 @@ def find_data_in_window(input_file, output_file, window_size_minutes):
         print("{} 文件保存成功".format(output_file))
         print("剩余 {} 行，消除率：{:.2f}%".format(writeline, (1 - writeline / len(rowList)) * 100))
 
-def find_matching_data_with_status(input_file, output_file, window_size_minutes):
+def find_data_in_window_list(input_file, output_file, window_size_minutes):
     window_size = timedelta(minutes=window_size_minutes)
     result = []
     window_data = []
@@ -140,7 +140,6 @@ def find_matching_data_with_status(input_file, output_file, window_size_minutes)
         reader = csv.reader(csvfile)
         fieldnames = next(reader)  # 读取表头
         datalen = 0
-        prev_position = None
         prev_window_end = None
 
         print("正在计算……")
@@ -158,17 +157,7 @@ def find_matching_data_with_status(input_file, output_file, window_size_minutes)
                 window_data = []
                 prev_window_end = timestamp + window_size
 
-            # 保存当前行的位置信息
-            position = (row[0], row[1], row[7])
-
-            if position == prev_position:
-                # 将位置相同的数据添加进窗口
-                window_data.append(row)
-            else:
-                # 当位置不相同时，处理前置窗口数据并更新位置
-                process_window_data(window_data, result)
-                window_data = [row]
-                prev_position = position
+            window_data.append(row)
 
         # 处理最后一个窗口数据
         process_window_data(window_data, result)
@@ -176,12 +165,13 @@ def find_matching_data_with_status(input_file, output_file, window_size_minutes)
         print("原有 {} 行，剩余 {} 行，收敛率：{:.2f}%".format(datalen, len(result), (1 - len(result) / datalen) * 100))
 
     # 写入文件
+    print("正在写入：{}".format(output_file))
     with open(output_file, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(fieldnames)
         writer.writerows(result)
 
-    print("{} 文件保存成功".format(output_file))
+    print("写入完成")
 
 def process_window_data(window_data, result):
     if not window_data:
@@ -197,14 +187,15 @@ def process_window_data(window_data, result):
         status_values = set(item[10] for item in position_data)
 
         # 判断当前位置的所有状态，找出第一条 nc 与最后一条 dnc，添加进 result
-        if ('nc' or 'nr' or 'cr') in status_values and ('dnc' or 'dnr' or 'dcr') in status_values:
-            first_faulty_data = next(item for item in position_data if item[10][0] != 'd')
-            last_normal_data = next(item for item in reversed(position_data) if item[10][0] == 'd')
+        if 'nc' in status_values or 'nr' in status_values or 'cr' in status_values:
+            first_nc_data = next(item for item in position_data if item[10][0] != 'd')
+            result.append(first_nc_data)
 
-            result.append(first_faulty_data)
-            result.append(last_normal_data)
+        if 'dnc' in status_values or 'dnr' in status_values or 'dcr' in status_values:
+            last_dnc_data = next(item for item in reversed(position_data) if item[10][0] == 'd')
+            result.append(last_dnc_data)
 
-def find_matching_data_with_status1(input_file, output_file, window_size_minutes):
+def find_data_in_position_dict(input_file, output_file, window_size_minutes):
     window_size = timedelta(minutes=window_size_minutes)
     result = []
     print("窗口大小：{}".format(window_size))
@@ -228,11 +219,11 @@ def find_matching_data_with_status1(input_file, output_file, window_size_minutes
 
             if timestamp > prev_window_end:
                 # 当前数据时间戳超出窗口，处理前置窗口数据并重置窗口
-                process_window_data1(positions_data, result)
+                process_position_data(positions_data, result)
                 positions_data = {}
                 prev_window_end = timestamp + window_size
 
-            # 将当前行的位置信息保存为一个元组，并将数据添加到对应位置的列表中
+            # 将当前行的位置信息保存为一个元组，并将数据添加到字典对应位置的列表中
             position = (row['sid'], row['bname'], row['lf'])
 
             if position not in positions_data:
@@ -241,46 +232,55 @@ def find_matching_data_with_status1(input_file, output_file, window_size_minutes
             positions_data[position].append(row)
 
         # 处理最后一个窗口数据
-        process_window_data1(positions_data, result)
+        process_position_data(positions_data, result)
 
         print("原有 {} 行，剩余 {} 行，收敛率：{:.2f}%".format(datalen, len(result), (1 - len(result) / datalen) * 100))
 
     # 写入文件
+    print("正在写入：{}".format(output_file))
+
     with open(output_file, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(result)
 
-    print("{} 文件保存成功".format(output_file))
+    print("写入完成")
 
-def process_window_data1(positions_data, result):
-    for data in positions_data.items():
+def process_position_data(positions_data, result):
+    for position, data in positions_data.items():
         status_values = set(item['status'] for item in data)
 
-        if 'nc' in status_values and 'dnc' in status_values:
-            first_faulty_data = next(item for item in data if item['status'] == 'nc')
-            last_normal_data = next(item for item in reversed(data) if item['status'] == 'dnc')
+        if ('nc' in status_values or 'nr' in status_values or 'cr' in status_values) and ('dnc' in status_values or 'dnr' in status_values or 'dcr' in status_values):
+            first_nc_data = next(item for item in data if item['status'][0] != 'd')
+            last_dnc_data = next(item for item in reversed(data) if item['status'][0] == 'd')
 
-            result.append(first_faulty_data)
-            result.append(last_normal_data)
+            result.append(first_nc_data)
+            result.append(last_dnc_data)
 
 def main():
     # 窗口大小，单位：min
     window_size_minutes = 10
 
     # 文件路径
-    csv_file_path = "data/status/status_nc.csv"
-    save_path = "data/status/nc_removed_{}min1.csv".format(window_size_minutes)
-    # csv_file_path = "data/sensor-alarm-info_final.csv"
-    # save_path = "data/sensor_removed_{}.csv".format(window_size_minutes)
+    # csv_file_path = "data/status/status_nc.csv"
+    # save_path = "data/status/nc_positiondict_removed_{}min.csv".format(window_size_minutes)
+
+    # csv_file_path1 = "data/status/status_nc.csv"
+    # save_path1 = "data/status/nc_windowlist_removed_{}min.csv".format(window_size_minutes)
+
+    csv_file_path = "data/sensor-alarm-info_final.csv"
+    save_path = "data/sensor_positiondict_removed_{}.csv".format(window_size_minutes)
+
+    csv_file_path1 = "data/sensor-alarm-info_final.csv"
+    save_path1 = "data/sensor_windowlist_removed_{}.csv".format(window_size_minutes)
     
-    # find_data_in_window(csv_file_path, save_path, window_size_minutes)
+    # find_data_in_time_gap(csv_file_path, save_path, window_size_minutes)
 
     # solution 1
-    # find_matching_data_with_status(csv_file_path, save_path, window_size_minutes)
+    find_data_in_window_list(csv_file_path1, save_path1, window_size_minutes)
 
     # solution 2
-    find_matching_data_with_status1(csv_file_path, save_path, window_size_minutes)
+    find_data_in_position_dict(csv_file_path, save_path, window_size_minutes)
 
 
 # Call main()
