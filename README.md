@@ -44,7 +44,7 @@ sensor-alarm-info.json<br>
 *使用滑动窗口收敛同窗口期内同位置传感器的 xx + dxx 组合拳*
 
 
-# [pureData]
+# [pure Data]
 "sensor-alarm-info_filter.csv"<br>
 除去原数据中的错误年份数据，累计去除 19038 行，剩余正确数据 3668757 行
 <br>
@@ -55,7 +55,7 @@ nc + dnc：3550316 行<br>
 "sensor-alarm-info_final.csv"<br>
 处理完成的可用数据集
 
-# [dataAggregation]
+# [data Preprocess]
 "sensor-alarm-info_remove_60.csv"<br>
 对 sensor-alarm-info_final.csv 进行抖动告警收敛，窗口 60s，收敛后剩余 2167274 行，收敛率40.93%
 
