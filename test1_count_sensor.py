@@ -1,20 +1,18 @@
+# -*- encoding: UTF-8 -*-
 '''
-@Coding : UTF-8
-@File   : test1_count_sensor.py
-@Time   : 2023-07-12 16:58:11
-@Author : tanxh 
+@File        : test1_count_sensor.py
+@Environment : TJalarm
+@Description : findind the sensors that alarm together
+@Time        : 2023-08-07 15:03:08
+@Author      : tanxh 
 '''
 
 import csv
 from dateutil.parser import parse
-from tqdm import tgrange
+from tqdm import tqdm
+from datetime import timedelta
 
-csv_file_path = "data/test/test_final.csv"
-save_path = "data/test/test_final_group_5s.csv"
-# csv_file_path = "data/sensor-alarm-info_final.csv"
-# save_path = "data/sensor-alarm-info_final_group_5s.csv"
-
-def date_time_count_ms(startTime,endTime): # 计算时间间隔
+def date_time_count_ms(startTime, endTime): # 计算时间间隔
     a = parse(str(endTime))
     b = parse(str(startTime))
 
@@ -24,96 +22,97 @@ def date_time_count_ms(startTime,endTime): # 计算时间间隔
 
     return total_seconds
 
-def del_samesensor(List): # 列表去重
+def del_samesensor(List):
+    unique_tuples = set()
     new_sensorList = []
-    for item in List:
-        if item not in new_sensorList:
+    for item in tqdm(List):
+        # 元组转换为可哈希的类型，例如字符串或者元组中不可变的部分
+        hashable_item = tuple(item)  # 假设元组中不可哈希的部分在元组内是不可变的
+        if hashable_item not in unique_tuples:
+            unique_tuples.add(hashable_item)
             new_sensorList.append(item)
-
     return new_sensorList
 
-def calculate_list(List): # 列表计数（需要改进）
-    counter_sdict = {}
-    for item in List:
-        counter_sdict[item] = counter_sdict.setdefault(item,0) + 1
-    
-    return counter_sdict
 
-def write_header():
-    # csv 文件表头
-    headerList = ['group', 'count']
-
-    # 创建 csv 文件，写入表头
-    f = csv.writer(open(save_path,"w",encoding="UTF-8",newline=""))
-    f.writerow(headerList)
-    print("{} 表头写入完成".format(save_path))
-
-def main():
+def count_sensor(input_file, output_file, delta):
+    window_size = timedelta(minutes=delta)
     timeList = []
-    sidList = []
-    find_sidList = []
-    new_sidList = []
-    delta = 5.0 # 两条告警发生的间隔时间
+    positionList = []
+    find_positionList = []
+    new_positionList = []
 
-    with open(csv_file_path,'r',encoding='utf-8') as textfile:
-        print("读取文件：{}".format(csv_file_path))
-        csvreader = csv.reader(textfile)
+    with open(input_file, 'r', encoding='UTF-8') as csvfile:
+        print("读取文件：{}".format(input_file))
+        csvreader = csv.reader(csvfile)
         header = next(csvreader)
-
-        sidList_cnt = 0
-
-        print("正在加载时间列表……")
+        
+        print("正在加载数据列表")
         for row in list(csvreader):
             ctt = row[12]
-            sid = row[0]
+            position = (row[0], row[1], row[7])
             
             timeList.append(ctt)
-            sidList.append(sid)
+            positionList.append(position)
         
-        print("窗口大小：{}s".format(delta))
-        print("正在计算告警组……")
-        for i in range(1,csvreader.line_num - 1): # timeList[i]=sidList[i]
+        print("窗口大小：{}".format(window_size))
+        print("正在计算告警组")
 
-            # bname + lf
+        # timeList[i]=positionList[i]
+        for i in tqdm(range(1, csvreader.line_num - 1)):
 
+            if len(find_positionList) == 0:
+                find_positionList.append(positionList[i - 1])
 
-            if len(find_sidList) == 0:
-                find_sidList.append(sidList[i-1])
+            # 计算相邻两条告警发生的时间间隔
+            time_gap = date_time_count_ms(timeList[i - 1], timeList[i])
 
-            time_gap = date_time_count_ms(timeList[i - 1],timeList[i]) # 计算相邻两条告警发生的时间间隔
-            is_sid_equal = sidList[i] != sidList[i - 1] # 两条告警的传感器不同
+            # 两条告警的发生位置不同
+            is_position_equal = positionList[i] != positionList[i - 1]
 
-            # print("sid:{}, {}: {}, sid:{}, {}: {}".format(sidList[i],i - 1,timeList[i-1],sidList[i - 1],i,timeList[i]))
-            # print("time_gap:{},{},sid_same:{}".format(time_gap,time_gap <= delta,sid_different))
+            # print("time_gap:{},{},position_same:{}".format(time_gap,time_gap <= delta,position_different))
 
-            if time_gap <= delta: # 时间间隔小于时间窗口，表示两条告警在一个窗口内
-                if is_sid_equal: # 发生告警的传感器不同
-                    if sidList[i] not in find_sidList: # 当前窗口传感器计数内不存在该传感器
-                        find_sidList.append(sidList[i])
-                        # print(list(new_sidList))
-                    else: # 当前窗口内已存在该传感器，不计
+            # 时间间隔小于
+            if time_gap <= delta:
+                
+                # 发生告警的位置不同
+                if is_position_equal:
+
+                    # 当前窗口计数内不存在该位置
+                    if positionList[i] not in find_positionList:
+                        find_positionList.append(positionList[i])
+                        # print(list(new_positionList))
+
+                    else: # 当前窗口内已存在该位置，不计
                         continue
-                else: # 窗口内的重复传感器告警，可通过此再过滤等级
+                else: # 窗口内的重复位置告警
                     continue
-            else: # 接连的两条告警不在时间窗口内，窗口计数list index+1
-                new_sidList.append(find_sidList)
-                find_sidList = []
-                sidList_cnt += 1
-    # print(new_sidList)
+            else: 
+                # 接连的两条告警不在时间窗口内
+                new_positionList.append(find_positionList)
+                find_positionList = []
 
-    alarmList = del_samesensor(new_sidList)
-    print("告警组：{}".format(alarmList))
-    # print("出现频次：{}".format(calculate_list(new_sidList)))
+    print("正在去重")
+    alarmList = del_samesensor(new_positionList)
+    # print("出现频次：{}".format(calculate_list(new_positionList)))
 
-    write_header()
+    # 写入文件
+    print("正在写入：{}".format(output_file))
+    with open(output_file, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(alarmList)
 
-    print("正在写入：{}".format(save_path))
-    for item in alarmList:
-        # print(item) # ['Temp_3']
-        f = csv.writer(open(save_path,"a",encoding="UTF-8"))
-        f.writerow(item)
+    print("写入完成")
 
-    print("写入完成：{}".format(save_path))
+def main():
+    # 两条告警发生的间隔时间
+    delta = 5.0 
+
+    # csv_file_path = "data/test/test_final.csv"
+    # save_path = "data/test/test_final_group_5s.csv"
+    csv_file_path = "data/sensor-alarm-info_final.csv"
+    save_path = "data/sensor_group_{}s.csv".format(int(delta))
+
+    count_sensor(csv_file_path, save_path, delta)
 
 # Call main()
 import time

@@ -13,7 +13,7 @@ from tqdm import tqdm
 from dateutil.parser import parse
 from datetime import datetime, timedelta
 
-def status_judge(a, b):
+def status_judge(a, b): # 判断状态
     code = 0
 
     if(a[0] != 'd' and b[0] == 'd'): # i-1:dnc  i:nc
@@ -27,7 +27,7 @@ def status_judge(a, b):
     
     return code
 
-def date_time_count_ms(start_time, end_time):
+def date_time_count_ms(start_time, end_time): # 计算时间间隔（毫秒）
     a = parse(str(start_time))
     b = parse(str(end_time))
 
@@ -35,7 +35,7 @@ def date_time_count_ms(start_time, end_time):
 
     return total_second
 
-def find_data_in_time_gap(input_file, output_file, window_size_minutes):
+def find_data_in_time_gap(input_file, output_file, window_size_minutes): # 通过时间间隔判断告警发生关系
     rowList = [] # 记录所有行
     alarmList = [] # 记录需要保留的告警
     writeline = 0
@@ -128,6 +128,15 @@ def find_data_in_time_gap(input_file, output_file, window_size_minutes):
         print("{} 文件保存成功".format(output_file))
         print("剩余 {} 行，消除率：{:.2f}%".format(writeline, (1 - writeline / len(rowList)) * 100))
 
+def save_data(rule, path): # 保存结果到txt文件
+    with open(path, "w") as f:
+        f.write("index\tbefore\tafter\ttime\n")
+        for iteration, item in rule.items():
+            s = "{}\t\t{}\t\t{}\t\t{}\n".format(iteration, item[0][0], item[0][1], item[1])
+            f.write(s)
+        f.close()
+    print("正在写入：{}".format(path))
+
 def find_data_in_window_list(input_file, output_file, window_size_minutes):
     window_size = timedelta(minutes=window_size_minutes)
     result = []
@@ -142,7 +151,7 @@ def find_data_in_window_list(input_file, output_file, window_size_minutes):
         datalen = 0
         prev_window_end = None
 
-        print("正在计算……")
+        print("solution1 正在计算……")
         for row in tqdm(list(reader)):
             datalen += 1
             timestamp = datetime.strptime(row[11], '%Y-%m-%d %H:%M:%S')
@@ -187,17 +196,19 @@ def process_window_data(window_data, result):
         status_values = set(item[10] for item in position_data)
 
         # 判断当前位置的所有状态，找出第一条 nc 与最后一条 dnc，添加进 result
-        if 'nc' in status_values or 'nr' in status_values or 'cr' in status_values:
+        if ('nc' in status_values or 'nr' in status_values or 'cr' in status_values):
             first_nc_data = next(item for item in position_data if item[10][0] != 'd')
             result.append(first_nc_data)
 
-        if 'dnc' in status_values or 'dnr' in status_values or 'dcr' in status_values:
+        if ('dnc' in status_values or 'dnr' in status_values or 'dcr' in status_values):
             last_dnc_data = next(item for item in reversed(position_data) if item[10][0] == 'd')
             result.append(last_dnc_data)
 
 def find_data_in_position_dict(input_file, output_file, window_size_minutes):
     window_size = timedelta(minutes=window_size_minutes)
     result = []
+    window_data = {}
+
     print("窗口大小：{}".format(window_size))
 
     with open(input_file, 'r', newline='') as csvfile:
@@ -207,8 +218,9 @@ def find_data_in_position_dict(input_file, output_file, window_size_minutes):
         prev_window_end = None
         positions_data = {}
         datalen = 0
+        window_iteration = 1
 
-        print("正在计算…")
+        print("solution2 正在计算…")
         for row in tqdm(list(reader)):
             datalen += 1
             timestamp = datetime.strptime(row['ctime'], '%Y-%m-%d %H:%M:%S')
@@ -218,8 +230,15 @@ def find_data_in_position_dict(input_file, output_file, window_size_minutes):
                 prev_window_end = timestamp + window_size
 
             if timestamp > prev_window_end:
+                start_time = time.time()
                 # 当前数据时间戳超出窗口，处理前置窗口数据并重置窗口
-                process_position_data(positions_data, result)
+                process_position_data(positions_data, result, window_data, window_iteration)
+
+                end_time = time.time()
+                runtime = (end_time - start_time) * 1000
+                window_data[window_iteration].append(round(runtime, 5))
+
+                window_iteration += 1
                 positions_data = {}
                 prev_window_end = timestamp + window_size
 
@@ -232,7 +251,7 @@ def find_data_in_position_dict(input_file, output_file, window_size_minutes):
             positions_data[position].append(row)
 
         # 处理最后一个窗口数据
-        process_position_data(positions_data, result)
+        process_position_data(positions_data, result, window_data, window_iteration)
 
         print("原有 {} 行，剩余 {} 行，收敛率：{:.2f}%".format(datalen, len(result), (1 - len(result) / datalen) * 100))
 
@@ -244,22 +263,37 @@ def find_data_in_position_dict(input_file, output_file, window_size_minutes):
         writer.writeheader()
         writer.writerows(result)
 
+    txtpath = "data/aggreration_lines.txt"
+    save_data(window_data, txtpath)
+
     print("写入完成")
 
-def process_position_data(positions_data, result):
+def process_position_data(positions_data, result, window_data, window_iteration):
+    result_before = len(result)
+    windowlen = 0
+
     for position, data in positions_data.items():
+        windowlen += len(data)
         status_values = set(item['status'] for item in data)
 
-        if ('nc' in status_values or 'nr' in status_values or 'cr' in status_values) and ('dnc' in status_values or 'dnr' in status_values or 'dcr' in status_values):
+        if ('nc' in status_values or 'nr' in status_values or 'cr' in status_values) and\
+            ('dnc' in status_values or 'dnr' in status_values or 'dcr' in status_values):
             first_nc_data = next(item for item in data if item['status'][0] != 'd')
             last_dnc_data = next(item for item in reversed(data) if item['status'][0] == 'd')
 
             result.append(first_nc_data)
             result.append(last_dnc_data)
 
+    result_after = len(result)
+
+    # 计算当前窗口收敛前后的行数与处理时间
+    windowdata = (windowlen, result_after - result_before)
+    window_data[window_iteration] = []
+    window_data[window_iteration].append(windowdata)
+
 def main():
     # 窗口大小，单位：min
-    window_size_minutes = 10
+    window_size_minutes = 5
 
     # 文件路径
     # csv_file_path = "data/status/status_nc.csv"
@@ -277,7 +311,7 @@ def main():
     # find_data_in_time_gap(csv_file_path, save_path, window_size_minutes)
 
     # solution 1
-    find_data_in_window_list(csv_file_path1, save_path1, window_size_minutes)
+    # find_data_in_window_list(csv_file_path1, save_path1, window_size_minutes)
 
     # solution 2
     find_data_in_position_dict(csv_file_path, save_path, window_size_minutes)
