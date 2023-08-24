@@ -1,0 +1,12 @@
+import torch
+import torch.nn
+
+print(torch.backends.mps.is_available())
+
+device = torch.device('mps' if torch.backends.mps.is_available() else 'cpu')
+
+model = nn.LSTM
+
+model.to(device)
+
+
